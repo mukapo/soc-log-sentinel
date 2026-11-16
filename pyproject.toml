@@ -1,0 +1,15 @@
+[project]
+name = "soc-log-sentinel"
+version = "1.0.0"
+description = "Zero-dependency Threat Detection, Multi-Stage Correlation & MITRE ATT&CK Triage Engine."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Muhammed Kaplan", email = "muhakaplan29@gmail.com" }
+]
+keywords = ["soc", "siem", "mitre-attack", "cybersecurity", "log-analysis", "incident-response"]
+
+[project.urls]
+Homepage = "https://github.com/mukapo/soc-log-sentinel"
+Portfolio = "https://mukapo.github.io"
