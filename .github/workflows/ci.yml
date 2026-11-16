@@ -1,0 +1,23 @@
+name: SOC Log Sentinel CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run Unit Tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Smoke Test Windows JSON Analysis
+        run: python3 src/detector.py --input data/sample_security_events.json --out-dir output
+      - name: Smoke Test Linux auth.log Analysis
+        run: python3 src/detector.py --input data/sample_linux_auth.log --out-dir output

