@@ -14,6 +14,8 @@ import html
 import io
 import json
 import re
+import socket
+import subprocess
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -50,6 +52,14 @@ SUSPICIOUS_SUDO_PATTERNS = [
 SSH_FAIL_RE = re.compile(
     r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sshd\[\d+\]:\s+"
     r"Failed password for (?:invalid user )?(?P<user>\S+)\s+from\s+(?P<ip>\S+)"
+)
+SSH_INVALID_USER_RE = re.compile(
+    r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sshd\[\d+\]:\s+"
+    r"Invalid user\s+(?P<user>\S+)\s+from\s+(?P<ip>\S+)"
+)
+PAM_AUTH_FAIL_RE = re.compile(
+    r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sshd\[\d+\]:\s+"
+    r"pam_unix\(sshd:auth\):\s+authentication failure;.*rhost=(?P<ip>\S+)(?:\s+user=(?P<user>\S+))?"
 )
 SSH_SUCCESS_RE = re.compile(
     r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sshd\[\d+\]:\s+"
@@ -102,13 +112,26 @@ def parse_auth_log_lines(lines: list[str]) -> list[dict[str, Any]]:
         if not line:
             continue
 
-        if m := SSH_FAIL_RE.match(line):
+        if m := (SSH_FAIL_RE.match(line) or SSH_INVALID_USER_RE.match(line)):
             events.append(
                 {
                     "timestamp": m.group("ts"),
                     "host": m.group("host"),
                     "event_id": 4625,
                     "user": m.group("user"),
+                    "source_ip": m.group("ip"),
+                    "status": "Failure",
+                    "platform": "linux_ssh",
+                    "details": line,
+                }
+            )
+        elif m := PAM_AUTH_FAIL_RE.match(line):
+            events.append(
+                {
+                    "timestamp": m.group("ts"),
+                    "host": m.group("host"),
+                    "event_id": 4625,
+                    "user": m.group("user") or "unknown",
                     "source_ip": m.group("ip"),
                     "status": "Failure",
                     "platform": "linux_ssh",
@@ -187,6 +210,57 @@ def load_events(file_path: Path) -> list[dict[str, Any]]:
         return parse_raw_text(content, format_hint="log")
 
     raise ValueError(f"Unsupported file format '{suffix}'. Use .json, .csv, .log, or .txt.")
+
+
+def load_macos_live_logs(hours: int = 24) -> list[dict[str, Any]]:
+    """Query live macOS Unified Logs for sudo, sshd, and auth events."""
+    predicate = 'process == "sudo" OR process == "sshd" OR process == "loginwindow"'
+    cmd = [
+        "/usr/bin/log",
+        "show",
+        "--predicate",
+        predicate,
+        "--last",
+        f"{hours}h",
+        "--style",
+        "compact",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if res.returncode != 0:
+        raise RuntimeError(f"macOS log query failed: {res.stderr.strip()}")
+
+    hostname = socket.gethostname()
+    events: list[dict[str, Any]] = []
+    for line in res.stdout.splitlines():
+        if "COMMAND=" in line and "sudo" in line:
+            ts = line[:19] if len(line) >= 19 else ""
+            user_match = re.search(r"sudo.*?:\s+(\S+)\s+:", line)
+            cmd_match = re.search(r"COMMAND=(.+)$", line)
+            events.append(
+                {
+                    "timestamp": ts,
+                    "host": hostname,
+                    "event_id": 4672,
+                    "user": user_match.group(1) if user_match else "local_user",
+                    "source_ip": "127.0.0.1",
+                    "command_line": cmd_match.group(1).strip() if cmd_match else line,
+                    "platform": "macos_live",
+                }
+            )
+        elif "Failed password" in line or "authentication failure" in line:
+            ts = line[:19] if len(line) >= 19 else ""
+            ip_match = re.search(r"from\s+(\d+\.\d+\.\d+\.\d+)", line)
+            events.append(
+                {
+                    "timestamp": ts,
+                    "host": hostname,
+                    "event_id": 4625,
+                    "user": "macos_auth",
+                    "source_ip": ip_match.group(1) if ip_match else "127.0.0.1",
+                    "platform": "macos_live",
+                }
+            )
+    return events
 
 
 def detect_threats(
@@ -525,11 +599,28 @@ def main() -> None:
         default=4,
         help="Failed logon threshold for brute-force detection (default: 4).",
     )
+    parser.add_argument(
+        "--live-macos",
+        action="store_true",
+        help="Scan live macOS Unified Logs (/usr/bin/log) instead of reading a file.",
+    )
+    parser.add_argument(
+        "--hours",
+        type=int,
+        default=24,
+        help="Lookback window in hours when using --live-macos (default: 24).",
+    )
     args = parser.parse_args()
 
-    events = load_events(args.input)
+    if args.live_macos:
+        events = load_macos_live_logs(hours=args.hours)
+        source_label = f"macOS Live Unified Logs (last {args.hours}h)"
+    else:
+        events = load_events(args.input)
+        source_label = str(args.input)
+
     alerts = detect_threats(events, brute_force_threshold=args.threshold)
-    report = build_report(events, alerts, str(args.input))
+    report = build_report(events, alerts, source_label)
 
     json_path = args.out_dir / "report.json"
     html_path = args.out_dir / "report.html"
