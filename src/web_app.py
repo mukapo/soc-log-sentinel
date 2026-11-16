@@ -1,5 +1,5 @@
 """
-SOC Log Sentinel - Interactive Local Web SIEM Console.
+SOC Log Sentinel - Full End-to-End Interactive SIEM & Incident Management Console.
 Zero-dependency HTTP server powered by Python stdlib.
 
 Usage:
@@ -14,86 +14,141 @@ import sys
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from detector import build_report, detect_threats, parse_raw_text  # noqa: E402
+from detector import (  # noqa: E402
+    build_report,
+    detect_threats,
+    export_html,
+    export_json,
+    load_macos_live_logs,
+    parse_raw_text,
+)
 
 HTML_UI = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SOC Log Sentinel | Interactive Triage Console</title>
+  <title>SOC Log Sentinel | Command & Triage Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Inter', sans-serif; background: #070a12; color: #e2e8f0; }
     .mono { font-family: 'JetBrains Mono', monospace; }
+    .card { background: #0d1322; border: 1px solid #1e293b; border-radius: 1rem; }
   </style>
 </head>
-<body class="min-h-screen p-6 md:p-10">
+<body class="min-h-screen p-4 md:p-8">
+  <div id="toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs mono shadow-xl"></div>
+
   <div class="max-w-7xl mx-auto space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-6">
+    <!-- Top Bar -->
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-800 pb-5">
       <div>
-        <div class="text-xs mono text-cyan-400 uppercase tracking-wider">SOC Log Sentinel v1.0 • @mukapo</div>
-        <h1 class="text-2xl md:text-3xl font-extrabold text-white mt-1">Interactive SIEM & MITRE ATT&CK Triage Console</h1>
+        <div class="flex items-center gap-2 text-xs mono text-cyan-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>SOC LOG SENTINEL v1.0 • FULL TRIAGE & RESPONSE CONSOLE</span>
+        </div>
+        <h1 class="text-2xl md:text-3xl font-extrabold text-white mt-1">Security Operations & MITRE ATT&CK Control Center</h1>
       </div>
-      <div class="flex flex-wrap gap-2">
-        <button onclick="loadSample('windows')" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition">Load Windows AD Attack</button>
-        <button onclick="loadSample('linux')" class="px-3.5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition">Load Linux SSH + Sudo Attack</button>
-      </div>
-    </div>
-
-    <!-- Input Panel -->
-    <div class="bg-[#0d1322] border border-gray-800 rounded-2xl p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <label class="text-xs mono text-gray-400 uppercase">Raw Security Logs (JSON / CSV / Linux auth.log)</label>
-        <input type="file" id="file-input" class="text-xs text-gray-400" onchange="handleFileUpload(event)" />
-      </div>
-      <textarea id="log-input" rows="5" class="w-full bg-[#070a12] border border-gray-800 rounded-xl p-3 text-xs mono text-gray-200 focus:outline-none focus:border-indigo-500" placeholder="Paste raw Windows Event JSON/CSV or Linux /var/log/auth.log lines here..."></textarea>
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-gray-500">Zero-dependency Python 3 correlation engine • Instant MITRE mapping</span>
-        <button onclick="analyzeLogs()" class="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold text-xs transition">Analyze Threat Logs</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="runLiveMacOS()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-1.5">
+          <span>⚡ Scan Live macOS</span>
+        </button>
+        <button onclick="exportReport('html')" class="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-semibold transition">Export HTML</button>
+        <button onclick="exportReport('json')" class="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-semibold transition">Export JSON</button>
       </div>
     </div>
 
-    <!-- KPI Cards -->
+    <!-- Ingestion & Scenario Controls -->
+    <div class="card p-5 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs mono text-gray-400 mr-1">Scenarios:</span>
+          <button onclick="loadSample('windows')" class="px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 text-xs font-medium transition">Windows AD Attack</button>
+          <button onclick="loadSample('linux')" class="px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/40 border border-cyan-500/30 text-cyan-300 text-xs font-medium transition">Linux SSH + Sudo</button>
+          <button onclick="loadSample('web')" class="px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 text-purple-300 text-xs font-medium transition">Web SQLi / Log4j</button>
+          <button onclick="loadSample('openssh_real')" class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/40 border border-amber-500/30 text-amber-300 text-xs font-medium transition">Real LabSZ (2k Lines)</button>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-gray-400">Brute-Force Threshold:
+            <input id="threshold-input" type="number" value="4" min="2" max="50" class="w-14 ml-1 bg-[#070a12] border border-gray-700 rounded px-2 py-1 text-xs mono text-white" />
+          </label>
+          <input type="file" id="file-input" class="text-xs text-gray-400 max-w-[180px]" onchange="handleFileUpload(event)" />
+        </div>
+      </div>
+
+      <textarea id="log-input" rows="5" class="w-full bg-[#070a12] border border-gray-800 rounded-xl p-3 text-xs mono text-gray-200 focus:outline-none focus:border-indigo-500" placeholder="Paste Windows JSON/CSV, Linux auth.log, or Nginx/Apache HTTP access logs here..."></textarea>
+
+      <div class="flex items-center justify-between">
+        <span id="source-status" class="text-xs mono text-gray-500">Ready • Supports JSON, CSV, Linux auth.log, OpenSSH, Nginx/Apache</span>
+        <button onclick="analyzeLogs()" class="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition shadow-lg shadow-indigo-600/25">Run Threat Analysis</button>
+      </div>
+    </div>
+
+    <!-- KPI Row -->
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-      <div class="bg-[#0d1322] border border-gray-800 rounded-2xl p-4">
+      <div class="card p-4">
         <div class="text-[11px] text-gray-400 uppercase">Risk Posture</div>
-        <div id="kpi-posture" class="text-2xl font-extrabold text-white mt-1 mono">--</div>
+        <div id="kpi-posture" class="text-xl font-extrabold text-white mt-1 mono">--</div>
       </div>
-      <div class="bg-[#0d1322] border border-gray-800 rounded-2xl p-4">
+      <div class="card p-4">
         <div class="text-[11px] text-gray-400 uppercase">Events Parsed</div>
         <div id="kpi-events" class="text-2xl font-extrabold text-white mt-1 mono">0</div>
       </div>
-      <div class="bg-[#0d1322] border border-gray-800 rounded-2xl p-4">
+      <div class="card p-4">
         <div class="text-[11px] text-gray-400 uppercase">Total Alerts</div>
         <div id="kpi-alerts" class="text-2xl font-extrabold text-indigo-400 mt-1 mono">0</div>
       </div>
-      <div class="bg-[#0d1322] border border-gray-800 rounded-2xl p-4">
-        <div class="text-[11px] text-gray-400 uppercase">Critical</div>
-        <div id="kpi-critical" class="text-2xl font-extrabold text-red-400 mt-1 mono">0</div>
+      <div class="card p-4">
+        <div class="text-[11px] text-gray-400 uppercase">Critical / High</div>
+        <div id="kpi-crithigh" class="text-2xl font-extrabold text-red-400 mt-1 mono">0 / 0</div>
       </div>
-      <div class="bg-[#0d1322] border border-gray-800 rounded-2xl p-4">
-        <div class="text-[11px] text-gray-400 uppercase">Top Attacker IP</div>
-        <div id="kpi-topip" class="text-sm font-bold text-amber-400 mt-2 mono">--</div>
+      <div class="card p-4">
+        <div class="text-[11px] text-gray-400 uppercase">Affected Hosts</div>
+        <div id="kpi-hosts" class="text-2xl font-extrabold text-cyan-400 mt-1 mono">0</div>
       </div>
     </div>
 
-    <!-- Alerts Table -->
-    <div class="bg-[#0d1322] border border-gray-800 rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
-        <h2 class="text-sm font-bold text-white">Correlated Incident Queue</h2>
-        <select id="sev-filter" onchange="renderTable()" class="bg-[#070a12] border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-gray-300">
-          <option value="ALL">All Severities</option>
-          <option value="CRITICAL">CRITICAL</option>
-          <option value="HIGH">HIGH</option>
-          <option value="MEDIUM">MEDIUM</option>
-        </select>
+    <!-- Analytics Row: MITRE Matrix + Top Attacking IPs -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div class="lg:col-span-7 card p-5">
+        <div class="text-xs mono text-gray-400 uppercase mb-3">MITRE ATT&CK Tactics Triggered</div>
+        <div id="mitre-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+          <div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">Initial Access</div>
+          <div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">Credential Access</div>
+          <div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">Execution</div>
+          <div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">Persistence</div>
+          <div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">Privilege Escalation</div>
+          <div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">Defense Evasion</div>
+        </div>
+      </div>
+
+      <div class="lg:col-span-5 card p-5">
+        <div class="text-xs mono text-gray-400 uppercase mb-3">Top Attacking IPs & 1-Click Firewall Block</div>
+        <div id="top-ips" class="space-y-2 text-xs text-gray-400">
+          <div>Run an analysis to see attacking source IPs.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Incident Triage Queue -->
+    <div class="card overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h2 class="text-sm font-bold text-white">Incident Triage & Response Queue</h2>
+        <div class="flex items-center gap-2">
+          <input id="search-box" type="text" oninput="renderTable()" placeholder="Search IP, user, MITRE..." class="bg-[#070a12] border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-indigo-500" />
+          <select id="sev-filter" onchange="renderTable()" class="bg-[#070a12] border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-300">
+            <option value="ALL">All Severities</option>
+            <option value="CRITICAL">CRITICAL</option>
+            <option value="HIGH">HIGH</option>
+            <option value="MEDIUM">MEDIUM</option>
+          </select>
+        </div>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
@@ -103,11 +158,11 @@ HTML_UI = """<!DOCTYPE html>
               <th class="p-3.5">Rule & Detection</th>
               <th class="p-3.5">MITRE ATT&CK</th>
               <th class="p-3.5">Host / IP / User</th>
-              <th class="p-3.5">Triage Status</th>
+              <th class="p-3.5">Status</th>
             </tr>
           </thead>
           <tbody id="alerts-body" class="text-xs divide-y divide-gray-800">
-            <tr><td colspan="5" class="p-6 text-center text-gray-500">Load a sample attack scenario or paste logs above to begin triage.</td></tr>
+            <tr><td colspan="5" class="p-6 text-center text-gray-500">Select a scenario above or click "Scan Live macOS" to begin.</td></tr>
           </tbody>
         </table>
       </div>
@@ -115,14 +170,33 @@ HTML_UI = """<!DOCTYPE html>
   </div>
 
   <script>
+    let currentReport = null;
     let currentAlerts = [];
     const statusMap = {};
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => t.classList.add('hidden'), 2800);
+    }
 
     async function loadSample(type) {
       const res = await fetch('/api/sample?type=' + type);
       const data = await res.json();
+      if (data.error) { showToast(data.error); return; }
       document.getElementById('log-input').value = data.raw;
+      document.getElementById('source-status').textContent = 'Loaded scenario: ' + type;
       await analyzeLogs();
+    }
+
+    async function runLiveMacOS() {
+      document.getElementById('source-status').textContent = 'Querying live macOS Unified Logs...';
+      const res = await fetch('/api/live-macos');
+      const report = await res.json();
+      if (report.error) { alert('Live macOS scan error: ' + report.error); return; }
+      applyReport(report);
+      showToast('Live macOS scan complete!');
     }
 
     function handleFileUpload(e) {
@@ -131,6 +205,7 @@ HTML_UI = """<!DOCTYPE html>
       const reader = new FileReader();
       reader.onload = (ev) => {
         document.getElementById('log-input').value = ev.target.result;
+        document.getElementById('source-status').textContent = 'Loaded file: ' + file.name;
         analyzeLogs();
       };
       reader.readAsText(file);
@@ -138,22 +213,62 @@ HTML_UI = """<!DOCTYPE html>
 
     async function analyzeLogs() {
       const raw = document.getElementById('log-input').value;
+      const threshold = parseInt(document.getElementById('threshold-input').value || '4', 10);
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw })
+        body: JSON.stringify({ raw, threshold })
       });
       const report = await res.json();
       if (report.error) { alert(report.error); return; }
+      applyReport(report);
+    }
+
+    function applyReport(report) {
+      currentReport = report;
+      currentAlerts = report.alerts || [];
 
       document.getElementById('kpi-posture').textContent = `${report.risk_level} (${report.risk_score})`;
       document.getElementById('kpi-events').textContent = report.total_events;
       document.getElementById('kpi-alerts').textContent = report.total_alerts;
-      document.getElementById('kpi-critical').textContent = report.severity_counts.CRITICAL || 0;
-      document.getElementById('kpi-topip').textContent = report.top_source_ips.length ? `${report.top_source_ips[0].ip} (${report.top_source_ips[0].alerts})` : 'None';
+      document.getElementById('kpi-crithigh').textContent = `${report.severity_counts.CRITICAL || 0} / ${report.severity_counts.HIGH || 0}`;
+      document.getElementById('kpi-hosts').textContent = (report.affected_hosts || []).length;
 
-      currentAlerts = report.alerts || [];
+      // Update MITRE Tactics Grid
+      const tactics = ['Initial Access', 'Credential Access', 'Execution', 'Persistence', 'Privilege Escalation', 'Defense Evasion', 'Reconnaissance'];
+      const activeTactics = currentAlerts.map(a => a.mitre_tactic);
+      document.getElementById('mitre-grid').innerHTML = tactics.map(t => {
+        const hit = activeTactics.some(at => at.includes(t));
+        return hit
+          ? `<div class="p-2.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 font-semibold flex items-center justify-between"><span>${t}</span><span class="text-[10px] mono">HIT</span></div>`
+          : `<div class="p-2.5 rounded-lg bg-[#070a12] border border-gray-800 text-gray-500">${t}</div>`;
+      }).join('');
+
+      // Update Top IPs
+      const ipsDiv = document.getElementById('top-ips');
+      if (!report.top_source_ips || !report.top_source_ips.length) {
+        ipsDiv.innerHTML = '<div class="text-gray-500">No external attacking IPs detected.</div>';
+      } else {
+        ipsDiv.innerHTML = report.top_source_ips.map(item => `
+          <div class="flex items-center justify-between bg-[#070a12] border border-gray-800 rounded-lg px-3 py-2">
+            <div><span class="mono text-cyan-300 font-semibold">${item.ip}</span> <span class="text-gray-500 ml-2">(${item.alerts} alerts)</span></div>
+            <button onclick="copyBlockCmd('${item.ip}')" class="px-2.5 py-1 rounded bg-red-500/15 hover:bg-red-500/30 border border-red-500/30 text-red-300 text-[10px] mono transition">Copy Block Cmd</button>
+          </div>
+        `).join('');
+      }
+
       renderTable();
+    }
+
+    function copyBlockCmd(ip) {
+      const cmd = `sudo ufw deny from ${ip} to any # SOC Log Sentinel Block`;
+      navigator.clipboard.writeText(cmd);
+      showToast('Copied firewall block rule: ' + cmd);
+    }
+
+    function exportReport(fmt) {
+      if (!currentReport) { showToast('Run an analysis first!'); return; }
+      window.open('/api/export?fmt=' + fmt, '_blank');
     }
 
     function cycleStatus(idx) {
@@ -165,12 +280,19 @@ HTML_UI = """<!DOCTYPE html>
 
     function renderTable() {
       const filter = document.getElementById('sev-filter').value;
+      const q = (document.getElementById('search-box').value || '').toLowerCase();
       const tbody = document.getElementById('alerts-body');
-      const filtered = currentAlerts.filter(a => filter === 'ALL' || a.severity === filter);
+      const filtered = currentAlerts.filter(a => {
+        const sevOk = filter === 'ALL' || a.severity === filter;
+        const text = `${a.rule_id} ${a.title} ${a.source_ip} ${a.user} ${a.host} ${a.mitre_technique}`.toLowerCase();
+        return sevOk && (!q || text.includes(q));
+      });
+
       if (!filtered.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-gray-500">No alerts match current filter.</td></tr>';
         return;
       }
+
       const badge = {
         CRITICAL: 'bg-red-500/15 text-red-400 border-red-500/30',
         HIGH: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
@@ -209,20 +331,52 @@ class SocHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path == "/" or self.path.startswith("/index"):
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        if parsed.path in {"/", "/index.html"}:
             body = HTML_UI.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif self.path.startswith("/api/sample"):
-            sample_file = (
-                BASE_DIR / "data" / "sample_linux_auth.log"
-                if "linux" in self.path
-                else BASE_DIR / "data" / "sample_security_events.json"
-            )
-            self._send_json({"raw": sample_file.read_text(encoding="utf-8")})
+        elif parsed.path == "/api/sample":
+            kind = params.get("type", ["windows"])[0]
+            mapping = {
+                "windows": BASE_DIR / "data" / "sample_security_events.json",
+                "linux": BASE_DIR / "data" / "sample_linux_auth.log",
+                "web": BASE_DIR / "data" / "sample_web_access.log",
+                "openssh_real": BASE_DIR / "data" / "real_openssh_2k.log",
+            }
+            target = mapping.get(kind, mapping["windows"])
+            if not target.exists():
+                self._send_json({"error": f"Dataset not found locally: {target.name}"}, status=404)
+                return
+            self._send_json({"raw": target.read_text(encoding="utf-8")})
+        elif parsed.path == "/api/live-macos":
+            try:
+                events = load_macos_live_logs(hours=24)
+                alerts = detect_threats(events)
+                report = build_report(events, alerts, "macOS Live Unified Logs (24h)")
+                export_json(report, BASE_DIR / "output" / "report.json")
+                export_html(report, BASE_DIR / "output" / "report.html")
+                self._send_json(asdict(report))
+            except Exception as exc:
+                self._send_json({"error": str(exc)}, status=500)
+        elif parsed.path == "/api/export":
+            fmt = params.get("fmt", ["html"])[0]
+            target = BASE_DIR / "output" / ("report.json" if fmt == "json" else "report.html")
+            if not target.exists():
+                self._send_json({"error": "No report exported yet."}, status=404)
+                return
+            body = target.read_bytes()
+            ctype = "application/json" if fmt == "json" else "text/html; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self._send_json({"error": "Not found"}, status=404)
 
@@ -232,9 +386,12 @@ class SocHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length).decode("utf-8")
             try:
                 data = json.loads(body)
+                threshold = int(data.get("threshold", 4))
                 events = parse_raw_text(data.get("raw", ""))
-                alerts = detect_threats(events)
+                alerts = detect_threats(events, brute_force_threshold=threshold)
                 report = build_report(events, alerts, "web-console-input")
+                export_json(report, BASE_DIR / "output" / "report.json")
+                export_html(report, BASE_DIR / "output" / "report.html")
                 self._send_json(asdict(report))
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=400)
@@ -244,7 +401,7 @@ class SocHandler(BaseHTTPRequestHandler):
 
 def run_server(host: str = "127.0.0.1", port: int = 8080) -> None:
     server = HTTPServer((host, port), SocHandler)
-    print(f"SOC Log Sentinel Web Console running at http://{host}:{port}")
+    print(f"SOC Log Sentinel Control Center running at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     server.serve_forever()
 
