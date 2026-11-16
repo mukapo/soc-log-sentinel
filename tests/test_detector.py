@@ -61,6 +61,16 @@ class TestSocDetector(unittest.TestCase):
         self.assertIn("SOC-008", rule_ids)
         self.assertIn("SOC-007", rule_ids)
 
+    def test_web_access_log_sqli_and_scanner(self) -> None:
+        raw_log = (
+            '9.9.9.9 - - [16/Nov/2026:10:18:22 +0000] '
+            '"GET /products?id=1%27%20or%201=1 HTTP/1.1" 500 1204 "-" "sqlmap/1.7"'
+        )
+        events = parse_raw_text(raw_log)
+        alerts = detect_threats(events)
+        rule_ids = {a.rule_id for a in alerts}
+        self.assertEqual(rule_ids, {"SOC-009", "SOC-010"})
+
     def test_clean_traffic_returns_low_risk(self) -> None:
         events = [
             {"timestamp": "2026-11-16T08:00:00Z", "host": "WS-01", "event_id": 4624, "user": "bob", "source_ip": "10.0.0.2"}

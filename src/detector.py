@@ -75,6 +75,18 @@ SUDO_CMD_RE = re.compile(
     r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sudo(?:\[\d+\])?:\s+"
     r"(?P<user>\S+)\s+:.*USER=(?P<target_user>\S+)\s*;\s*COMMAND=(?P<cmd>.+)$"
 )
+HTTP_ACCESS_RE = re.compile(
+    r'^(?P<ip>\S+)\s+\S+\s+\S+\s+\[(?P<ts>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)\s+[^"]+"\s+(?P<status>\d{3})\s+\S+(?:\s+"[^"]*"\s+"(?P<ua>[^"]*)")?'
+)
+
+WEB_EXPLOIT_PATTERNS = [
+    (r"(\.\./|\.\.\\|%2e%2e)", "Path Traversal"),
+    (r"(union\s+select|or\s+1=1|sleep\(|benchmark\(|%27%20or%20)", "SQL Injection"),
+    (r"(<script|javascript:|onerror=|onload=)", "Cross-Site Scripting (XSS)"),
+    (r"(\$\{jndi:|/etc/passwd|cmd\.exe|/bin/sh)", "Remote Code / File Inclusion"),
+]
+
+SCANNER_UA_PATTERNS = [r"sqlmap", r"nikto", r"gobuster", r"dirbuster", r"nmap", r"wfuzz", r"nuclei"]
 
 
 @dataclass
@@ -169,6 +181,22 @@ def parse_auth_log_lines(lines: list[str]) -> list[dict[str, Any]]:
                     "command_line": m.group("cmd").strip(),
                     "status": "Success",
                     "platform": "linux_sudo",
+                    "details": line,
+                }
+            )
+        elif m := HTTP_ACCESS_RE.match(line):
+            events.append(
+                {
+                    "timestamp": m.group("ts"),
+                    "host": "WEB-GW-01",
+                    "event_id": 8000,
+                    "user": "http_anon",
+                    "source_ip": m.group("ip"),
+                    "http_method": m.group("method"),
+                    "http_path": m.group("path"),
+                    "http_status": int(m.group("status")),
+                    "user_agent": m.group("ua") or "",
+                    "platform": "web_http",
                     "details": line,
                 }
             )
@@ -407,6 +435,45 @@ def detect_threats(
                     remediation="Decode Base64 payload, quarantine endpoint via EDR, and block C2 IP/domain.",
                 )
             )
+
+        # Rule 9 & 10: Web Application Exploit & Automated Scanner (T1190 / T1595.003)
+        if event_id == 8000:
+            http_path = str(ev.get("http_path", ""))
+            ua = str(ev.get("user_agent", ""))
+            for pat, attack_name in WEB_EXPLOIT_PATTERNS:
+                if re.search(pat, http_path, re.IGNORECASE):
+                    alerts.append(
+                        Alert(
+                            rule_id="SOC-009",
+                            title=f"Web Application Attack: {attack_name}",
+                            severity="CRITICAL",
+                            mitre_tactic="Initial Access",
+                            mitre_technique="T1190 - Exploit Public-Facing Application",
+                            host=host,
+                            source_ip=ip,
+                            user=user,
+                            timestamp=ts,
+                            evidence=f"HTTP {ev.get('http_method')} {http_path} (status {ev.get('http_status')})",
+                            remediation="Block attacker IP at WAF/Nginx, patch vulnerable endpoint, and inspect web root.",
+                        )
+                    )
+                    break
+            if ua and any(re.search(s_pat, ua, re.IGNORECASE) for s_pat in SCANNER_UA_PATTERNS):
+                alerts.append(
+                    Alert(
+                        rule_id="SOC-010",
+                        title="Automated Web Vulnerability Scanner Detected",
+                        severity="HIGH",
+                        mitre_tactic="Reconnaissance",
+                        mitre_technique="T1595.003 - Wordlist Scanning",
+                        host=host,
+                        source_ip=ip,
+                        user=user,
+                        timestamp=ts,
+                        evidence=f"Scanner User-Agent '{ua}' targeting {http_path}",
+                        remediation="Rate-limit or block scanner User-Agent and IP at WAF/reverse proxy.",
+                    )
+                )
 
     # Rule 1: Aggregate Single-User Brute Force (T1110.001)
     for (host, ip, user), failures in failed_by_target.items():
