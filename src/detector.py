@@ -58,8 +58,14 @@ SSH_INVALID_USER_RE = re.compile(
     r"Invalid user\s+(?P<user>\S+)\s+from\s+(?P<ip>\S+)"
 )
 PAM_AUTH_FAIL_RE = re.compile(
-    r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sshd\[\d+\]:\s+"
-    r"pam_unix\(sshd:auth\):\s+authentication failure;.*rhost=(?P<ip>\S+)(?:\s+user=(?P<user>\S+))?"
+    r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+"
+    r"(?:sshd(?:\(pam_unix\))?\[\d+\]:\s+(?:pam_unix\(sshd:auth\):\s+)?|"
+    r"(?:vsftpd|ftpd)\(pam_unix\)\[\d+\]:\s+)"
+    r"authentication failure;.*rhost=(?P<ip>\S+)(?:\s+user=(?P<user>\S+))?"
+)
+SU_ROOT_RE = re.compile(
+    r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+"
+    r"su(?:\(pam_unix\))?\[\d+\]:\s+session opened for user (?P<target_user>\S+) by (?P<user>\S+)"
 )
 SSH_SUCCESS_RE = re.compile(
     r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+sshd\[\d+\]:\s+"
